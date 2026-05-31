@@ -1,0 +1,28 @@
+{
+  "name": "sentry-aegis-ai",
+  "version": "1.0.0",
+  "description": "[![Ecosystem: Base](https://img.shields.io/badge/Ecosystem-Base%20%7C%20EVM-blue.svg)](https://base.org) [![LLM: Ollama Gemma 4](https://img.shields.io/badge/LLM-Ollama%20Gemma%204-orange.svg)](https://ollama.com) [![Web3: Coinbase AgentKit](https://img.shields.io/badge/Web3-Coinbase%20AgentKit-navy.svg)](https://github.com/coinbase/agentkit) [![Framework: Foundry](https://img.shields.io/badge/Framework-Foundry-red.svg)](https://github.com/foundry-rs/foundry)",
+  "main": "test.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "viem": "^2.51.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

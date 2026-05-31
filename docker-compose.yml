@@ -1,0 +1,29 @@
+services:
+  ollama:
+    build: ./ollama/
+    container_name: ollama
+    volumes:
+      - ollama_vol:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  agent-sentry:
+    build:
+      context: .
+      dockerfile: apps/sentry-aegis-ai/Dockerfile
+    container_name: agent-sentry-backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - ollama
+volumes:
+  ollama_vol:
