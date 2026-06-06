@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title AegisVault
- * @author YourName
+ * @author Jacob Lin
  * @notice A defensive, lightweight vault designed specifically for AI Agents,
  * featuring a daily spending limit and an emergency circuit breaker.
  */
@@ -15,6 +15,11 @@ contract AegisVault {
     uint256 public spentToday; // Total amount withdrawn within the current 24-hour window
     uint256 public lastResetTimestamp; // Epoch timestamp tracking when the current 24-hour window started
     bool public isPaused; // Emergency switch state; if true, all agent actions are frozen
+
+    // AlphaKeeper Specific Extensions
+    mapping(address => bool) public isWhitelistedToken; // Maps token addresses to a boolean indicating if the AI is allowed to trade them
+    uint256 public lastTradeTimestamp;  // Timestamp of the agent's last executed trade
+    uint256 public constant TRADE_COOLDOWN = 5 minutes; // Minimum time required between trades to prevent high-frequency gas drain
 
     // Reentrancy Status (Lightweight alternative to OpenZeppelin's ReentrancyGuard to optimize Gas)
     // Using uint256 (1 and 2) instead of bool (false and true) avoids the gas penalty of resetting
@@ -31,6 +36,8 @@ contract AegisVault {
     error EthTransferFailed(); // Thrown if a native Ether transfer is rejected by the recipient
     error TokenTransferFailed(); // Thrown if a low-level ERC20 transfer fails or returns false
     error ReentrancyGuardTriggered(); // Thrown if a nested or recursive call attempt is detected
+    error NotWhitelisted();  // Thrown when the agent attempts to trade an unapproved token
+    error CooldownActive();  // Thrown when the agent tries to trade before the TRADE_COOLDOWN expires
 
     // --- Event Declarations ---
     // Events allow external indexers (like subgraphs) to track vault activity seamlessly.
@@ -50,7 +57,7 @@ contract AegisVault {
      */
     modifier onlyOwner() {
         if (msg.sender != owner) revert UnauthorizedCaller();
-        _;
+        _;  // Continue executing the rest of the function
     }
 
     /**
@@ -83,6 +90,7 @@ contract AegisVault {
     // --- Constructor ---
 
     /**
+     * @notice Initializes the vault with an agent and a spending limit
      * @param _agent The initial address assigned to the AI Agent.
      * @param _dailyLimit The initial 24-hour spending limit.
      */
@@ -92,6 +100,57 @@ contract AegisVault {
         dailyLimit = _dailyLimit;
         lastResetTimestamp = block.timestamp; // Initializes the 24-hour cycle timer
         _status = _NOT_ENTERED; // Initializes the reentrancy guard to an unlocked state
+    }
+
+    /**
+     * @notice Adds a token to the safe-to-trade whitelist
+     * @dev Only callable by the owner, ensuring separation of duties between human admin and AI agent
+     * @param token The address of the ERC20 token to whitelist.
+     */
+    function addWhitelist(address token) external {
+        if(msg.sender != owner) revert UnauthorizedCaller();
+        isWhitelistedToken[token] = true;
+    }
+    
+    /**
+     * @notice Executes a quantitative trade triggered by the AI Agent
+     * @dev Includes 4 layers of strict security checks before routing the transaction to a DEX
+     * @param token The address of the token being traded
+     * @param amount The amount of native tokens (e.g., ETH) to spend on the trade
+     * @param targetDex The address of the decentralized exchange router (e.g., Uniswap/Aerodrome)
+     */
+    function executeQuantTrade(address token, uint256 amount, address targetDex) external onlyAgent {
+        // CHECK 1: Asset Whitelist - Prevent the AI from trading malicious or unapproved tokens
+        if (!isWhitelistedToken[token]) revert NotWhitelisted();
+
+        // CHECK 2: Frequency Limit - Prevent the AI from spamming transactions (gas drain attack)
+        if(block.timestamp < lastTradeTimestamp + TRADE_COOLDOWN) revert CooldownActive();
+
+        // [CHECK 3]: Lazy Reset for Daily Limits - If 24 hours have passed, reset the spending tracker
+        if (block.timestamp >= lastResetTime + 1 days) {
+            spentToday = 0;
+            lastResetTime = block.timestamp;
+        }
+
+        // [CHECK 4]: Value Limit - Ensure the current trade doesn't exceed the daily allowance
+        if (spentToday + amount > dailyLimit) revert ExceedsLimit();
+
+        // ==========================================
+        // State Effects (Checks-Effects-Interactions Pattern)
+        // ==========================================
+        // We update internal state BEFORE interacting with external contracts to prevent Reentrancy attacks
+        spentToday += amount;
+        lastTradeTimestamp = block.timestamp;
+
+        // ==========================================
+        // External Interactions
+        // ==========================================
+        // Low-level call to the target DEX Router logic. 
+        // It forwards the specified 'amount' of native value (ETH) along with the call.
+        (bool success, ) = targetDex.call{value: amount}("");
+        
+        // Revert the entire transaction and rollback state if the DEX trade fails
+        require(success, "Trade Execution Failed");
     }
 
     /**
